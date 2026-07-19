@@ -29,19 +29,25 @@ def parse_indices(indices_data):
     return parsed
 
 def parse_disaster(alert_data, disaster_level, disaster_msg):
+    """Mirror coordinator.parse_disaster text rules (offline, no HA import)."""
     threshold = int(disaster_level)
     alerts = (alert_data or {}).get("alerts") or []
-    allmsg = titlemsg = ""
+    all_parts = []
+    title_parts = []
     matched = []
     for item in alerts:
         severity = str(item.get("severity", "")).lower()
         if severity in DISASTER_LEVEL and DISASTER_LEVEL[severity] >= threshold:
             matched.append(item)
-            allmsg += f"{item.get('headline')}:{item.get('description')}||"
-            titlemsg += f"{item.get('headline')}||"
+            description = (item.get("description") or "").strip()
+            headline = (item.get("headline") or "").strip()
+            if description:
+                all_parts.append(description)
+            if headline:
+                title_parts.append(headline)
     if not matched:
         return {"active": False, "text": f"no disaster {disaster_level}"}
-    text = titlemsg if disaster_msg == "title" else allmsg
+    text = "；".join(title_parts) if disaster_msg == "title" else "；".join(all_parts)
     return {"active": True, "text": text}
 
 def parse_minutely(minutely_data):
@@ -87,7 +93,36 @@ def test_all():
     parsed2 = parse_indices({"daily":[{"type":"4","category":"适宜","text":"钓鱼适宜"},{"type":"13","category":"保湿","text":"化妆保湿"}]})
     assert "fishing" in parsed2 and "makeup" in parsed2
     result = parse_disaster({"alerts":[{"severity":"minor","headline":"小风","description":"d1"},{"severity":"severe","headline":"暴雨","description":"d2"}]}, "3", "title")
-    assert result["active"] is True and "暴雨" in result["text"] and "小风" not in result["text"]
+    assert result["active"] is True and result["text"] == "暴雨" and "小风" not in result["text"]
+    # allmsg: description only, multi joined by Chinese semicolon
+    allmsg = parse_disaster({
+        "alerts": [
+            {"severity": "severe", "headline": "HEADLINE_A", "description": "南京市气象台发布高温黄色预警，预计白天最高气温将升至35℃以上"},
+            {"severity": "major", "headline": "HEADLINE_B", "description": "江苏省气象台发布高温橙色预警，预计部分地区最高气温将升至37℃以上"},
+        ]
+    }, "3", "allmsg")
+    assert allmsg["active"] is True
+    assert allmsg["text"] == (
+        "南京市气象台发布高温黄色预警，预计白天最高气温将升至35℃以上；"
+        "江苏省气象台发布高温橙色预警，预计部分地区最高气温将升至37℃以上"
+    )
+    assert "HEADLINE_A" not in allmsg["text"] and "HEADLINE_B" not in allmsg["text"]
+    assert "||" not in allmsg["text"]
+    title_multi = parse_disaster({
+        "alerts": [
+            {"severity": "severe", "headline": "南京高温", "description": "d1"},
+            {"severity": "major", "headline": "江苏高温", "description": "d2"},
+        ]
+    }, "3", "title")
+    assert title_multi["text"] == "南京高温；江苏高温"
+    # skip empty description pieces
+    skip_empty = parse_disaster({
+        "alerts": [
+            {"severity": "severe", "headline": "H", "description": ""},
+            {"severity": "major", "headline": "H2", "description": "only"},
+        ]
+    }, "3", "allmsg")
+    assert skip_empty["text"] == "only"
     m = parse_minutely({"summary":"即将下雨","minutely":[{"precip":"0.0"},{"precip":"0.2"}]})
     assert m["has_precip"] and m["first_precip"] == 0.2
     assert rain_warn_active({"hourly":[{"condition":"rainy","text":"小雨"}]}) is True
@@ -108,7 +143,11 @@ def test_all():
     init = (PKG/"__init__.py").read_text(encoding="utf-8")
     assert "WeatherUpdateCoordinator" in init
     manifest = json.loads((PKG/"manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "2.5.0"
+    assert manifest["version"] == "2.6.1"
+    # production parse_disaster: description-only allmsg, no legacy || join
+    assert '".join(all_parts)' in coord or ".join(all_parts)" in coord
+    assert "headline}:{description" not in coord
+    assert 'allmsg += f"{headline}:{description}||"' not in coord
     const = (PKG/"heweather"/"const.py").read_text(encoding="utf-8")
     assert '"4": "fishing"' in const and '"13": "makeup"' in const
     cf = (PKG/"config_flow.py").read_text(encoding="utf-8")

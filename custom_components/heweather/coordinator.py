@@ -126,26 +126,29 @@ def parse_disaster(
     else:
         alerts = []
 
-    allmsg = ""
-    titlemsg = ""
+    # allmsg: 仅 description；title: 仅 headline；多条用中文分号拼接
+    all_parts: list[str] = []
+    title_parts: list[str] = []
     matched: list[dict[str, Any]] = []
     for item in alerts:
         severity = str(item.get("severity", "")).lower()
         if severity in DISASTER_LEVEL and DISASTER_LEVEL[severity] >= threshold:
             matched.append(item)
-            headline = item.get("headline") or ""
-            description = item.get("description") or ""
-            allmsg += f"{headline}:{description}||"
-            titlemsg += f"{headline}||"
+            description = (item.get("description") or "").strip()
+            headline = (item.get("headline") or "").strip()
+            if description:
+                all_parts.append(description)
+            if headline:
+                title_parts.append(headline)
 
     if not matched:
         text = f"近日无{disaster_level}级及以上灾害"
         active = False
     elif disaster_msg == "title":
-        text = titlemsg
+        text = "；".join(title_parts)
         active = True
     else:
-        text = allmsg
+        text = "；".join(all_parts)
         active = True
 
     return {

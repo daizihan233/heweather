@@ -51,14 +51,16 @@ DISASTER_MSG: dict = {
     "allmsg": "所有信息",
 }
 
+# 阈值 1–6：与 DISASTER_LEVEL 映射比较。文案对齐官方 severity：
+# https://dev.qweather.com/docs/resource/warning-info/#severity
 DEFAULT_DISASTER_LEVEL_CONF: str = "3"
 DISASTER_LEVEL_CONF: dict = {
-    "1": "标准的",
-    "2": "次要的",
-    "3": "中等的",
-    "4": "主要",
-    "5": "严重",
-    "6": "极端",
+    "1": "兼容档(standard/blue)",
+    "2": "minor：威胁极小或无已知威胁",
+    "3": "moderate：可能构成威胁",
+    "4": "兼容档(major/orange)",
+    "5": "severe：重大威胁",
+    "6": "extreme：严重威胁",
 }
 
 CONDITION_CLASSES = {
@@ -121,14 +123,17 @@ CONDITION_CLASSES = {
 # 与 README 模板一致：这些 condition 视为「无雨雪」
 DRY_CONDITIONS = frozenset({"sunny", "cloudy", "partlycloudy", "windy"})
 
+# severity → 内部阈值。官方 severity 见 warning-info#severity：
+# unknown / minor / moderate / severe / extreme
+# standard、major 与颜色别名仅作兼容，便于历史数据与 color 字段回落
 DISASTER_LEVEL = {
     "cancel": 0,
     "none": 0,
     "unknown": 0,
-    "standard": 1,
+    "standard": 1,  # 非官方 severity 枚举，兼容保留
     "minor": 2,
     "moderate": 3,
-    "major": 4,
+    "major": 4,  # 非官方 severity 枚举，兼容保留
     "severe": 5,
     "extreme": 6,
     "white": 0,

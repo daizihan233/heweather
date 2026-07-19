@@ -46,21 +46,40 @@
   https://github.com/qwd/LocationList/blob/master/China-City-List-latest.csv
 
 
-6. 关注的自然灾害等级，1-6为从轻微到严重， 代表在灾害预警里你关注的灾害等级。
-   
-    "Standard": "标准的",
+6. 灾害预警过滤：使用和风 API 字段 **`severity`**（严重程度），不是 `headline` / `description`，也不是 `color`。
 
-    "Minor": "次要的",
-   
-    "Moderate": "中等的",
-   
-    "Major": "主要",
-   
-    "Severe": "严重",
-   
-    "Extreme": "极端"
-   
-   只显示标题即只在灾害预警text中透出灾害标题，显示标题+明细信息则会在text中透出全部信息（会比较长）
+   官方定义见：[预警信息 · 严重程度 severity](https://dev.qweather.com/docs/resource/warning-info/#severity)
+
+   | `severity`（API 原文字段） | 官方含义 |
+   |---|---|
+   | `unknown` | 严重性未知 |
+   | `minor` | 对生命或财产构成的威胁极小或没有已知威胁 |
+   | `moderate` | 对生命或财产可能构成威胁 |
+   | `severe` | 对生命或财产构成的重大威胁 |
+   | `extreme` | 对生命或财产构成的严重威胁 |
+
+   > 官方说明：严重等级可能按当地规范新增，代码应兼容未知取值；建议不要写死枚举做展示，但本集成做「最低关注等级」过滤时，会把已知取值映射成内部阈值再比较。
+
+   **集成里的「预警级别」配置（`disasterlevel`，默认 `3`）**：你选的是**最低关注阈值**（数字越大越严）。命中条件为：
+
+   `映射后的 severity 数值 ≥ disasterlevel`
+
+   内部映射（便于阈值比较；含历史兼容与颜色别名）：
+
+   | 阈值 | 主要对应的 `severity` / 别名 | 说明 |
+   |---|---|---|
+   | 0 | `unknown` / `none` / `cancel` / `white` | 未知或不参与告警 |
+   | 1 | `standard`（兼容）/ `blue` | 官方 severity 表未列 standard，仅兼容 |
+   | 2 | **`minor`** / `green` | 威胁极小 |
+   | 3 | **`moderate`** / `yellow` | 可能构成威胁（默认） |
+   | 4 | `major`（兼容）/ `orange` | 官方 severity 表未列 major，仅兼容 |
+   | 5 | **`severe`** / `red` | 重大威胁 |
+   | 6 | **`extreme`** / `black` | 严重威胁 |
+
+   **预警内容（disastermsg）**：
+   - `title`（仅标题）：只取每条的 `headline`，多条用中文分号 `；` 拼接。
+   - `allmsg`（所有信息，默认）：**只取**每条的 `description`（不含 `headline`），多条用 `；` 拼接，例如：  
+     `南京市气象台发布高温黄色预警，……；江苏省气象台发布高温橙色预警，……`
 
 
 ## 一小时天气预警

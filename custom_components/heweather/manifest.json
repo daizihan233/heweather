@@ -1,14 +1,14 @@
 {
-  "domain": "hefengweather",
+  "domain": "heweather",
   "name": "和风天气",
-  "codeowners": ["daizihan233"],
+  "codeowners": ["@daizihan233"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/daizihan233/heweather",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/daizihan233/heweather/issues",
-  "loggers": ["custom_components.hefengweather"],
+  "loggers": ["custom_components.heweather"],
   "requirements": [
     "cryptography",
     "PyJWT"

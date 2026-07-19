@@ -103,3 +103,70 @@
 
 https://www.bilibili.com/read/cv18078640
 
+
+## v2.5 实体与自动化（推荐）
+
+本集成已将常用数据拆成可直接在自动化中引用的 **sensor / binary_sensor**，无需再手写 template 读小时预报。
+
+### 内置 binary_sensor（适合自动化触发）
+
+| 实体（名称） | 说明 | 状态 |
+|---|---|---|
+| 灾害预警(开关) | 达到你配置的灾害等级时为 on | `on` / `off`，详情在属性 `states` |
+| 一小时降水预警 | 下一小时预报为雨雪类天气时为 on | `on` / `off`，属性含降水概率 |
+| 分钟级降水预警 | 未来约 2 小时分钟降水有降水时为 on | `on` / `off`，属性含 summary |
+
+> 旧版 `sensor.heweather_disaster_warn`（on/off 文本传感器）仍保留一版，方便旧自动化；新自动化请改用 binary_sensor。
+
+### 新增 sensor 摘要
+
+- 分钟降水：`分钟降水描述`、`分钟降水强度`
+- 天文：`日出`、`日落`、`月升`、`月落`、`月相`、`月亮照明度`
+- 空气质量日预报：`明日空气质量级别` / `等级` / `首要污染物`
+- 生活指数：补齐 `钓鱼指数`、`化妆指数`；修复太阳镜指数误绑紫外线的问题
+- 污染物：补齐 `一氧化氮`、`非甲烷总烃`（API 有数据时）
+
+### 自动化示例
+
+```yaml
+automation:
+  - alias: 灾害预警通知
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.he_feng_tian_qi_heweather_disaster_warn_binary
+        to: "on"
+    action:
+      - service: notify.mobile_app_xxx
+        data:
+          title: 灾害预警
+          message: "{{ state_attr('binary_sensor.he_feng_tian_qi_heweather_disaster_warn_binary', 'states') }}"
+
+  - alias: 一小时内有雨关窗提醒
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.he_feng_tian_qi_heweather_rain_warn
+        to: "on"
+    action:
+      - service: notify.mobile_app_xxx
+        data:
+          message: "{{ state_attr('binary_sensor.he_feng_tian_qi_heweather_rain_warn', 'states') }}"
+```
+
+实体 ID 会随设备名变化，请在 HA 开发者工具 → 状态 中确认实际 `entity_id`。
+
+### 未接入的付费 API
+
+以下接口**不会**请求（按你的要求排除）：
+
+- 热带气旋（台风）
+- 海洋数据
+- 太阳辐射 / 辐照
+
+### 架构说明（2.5）
+
+- 使用 `DataUpdateCoordinator` 统一拉取，避免 weather / sensor 重复请求实况
+- 实况+空气+预警+预报+天文：约 10 分钟
+- 生活指数：约 2 小时
+- 分钟降水：约 10 分钟（失败不影响其它实体）
+- 日/小时预报时间使用 API 返回的 `fxDate` / `fxTime`
+

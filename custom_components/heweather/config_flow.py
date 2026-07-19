@@ -22,14 +22,13 @@ from .heweather.const import (
     CONF_JWT_KID,
     CONF_DISASTERLEVEL,
     CONF_DISASTERMSG,
-    CONF_SENSOR_LIST,
     DEFAULT_HOST,
     DEFAULT_AUTH_METHOD,
     AUTH_METHOD,
     DEFAULT_DISASTER_LEVEL_CONF,
     DISASTER_LEVEL_CONF,
     DEFAULT_DISASTER_MSG,
-    DISASTER_MSG
+    DISASTER_MSG,
 )
 
 from .heweather.heweather_cert import HeWeatherCert
@@ -272,17 +271,16 @@ class HeWeatherConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: Optional[dict] = None
     ):
         if user_input:
-            if user_input.get("jwt_sub", self._key) == "":
-                return await self.__show_auth_apikey_config_form("jwt_sub is empty")
-            elif user_input.get("jwt_kid", None) == "":
-                return await self.__show_auth_apikey_config_form("jwt_kid is empty")
-            elif user_input.get("host", None) == "":
-                return await self.__show_auth_apikey_config_form("host is empty")
-            else:
-                self._jwt_sub = user_input.get("jwt_sub", self._jwt_sub)
-                self._jwt_kid = user_input.get("jwt_kid", self._jwt_kid)
-                self._host = user_input.get("host", self._host)
-                return await self.async_step_location_config()
+            if user_input.get("jwt_sub", self._jwt_sub) == "":
+                return await self.__show_auth_jwt_config_form("jwt_sub is empty")
+            if user_input.get("jwt_kid", None) == "":
+                return await self.__show_auth_jwt_config_form("jwt_kid is empty")
+            if user_input.get("host", None) == "":
+                return await self.__show_auth_jwt_config_form("host is empty")
+            self._jwt_sub = user_input.get("jwt_sub", self._jwt_sub)
+            self._jwt_kid = user_input.get("jwt_kid", self._jwt_kid)
+            self._host = user_input.get("host", self._host)
+            return await self.async_step_location_config()
         await self._heweather_cert.gen_key_async()
         self._jwt_pubkey = await self._heweather_cert.get_pub_key_async()
         return await self.__show_auth_jwt_config_form("")

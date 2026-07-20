@@ -137,6 +137,84 @@ https://www.bilibili.com/read/cv18078640
 
 > 旧版 `sensor.heweather_disaster_warn`（on/off 文本传感器）仍保留一版，方便旧自动化；新自动化请改用 binary_sensor。
 
+### 灾害预警事件（推荐：逐条新增/解除通知）
+
+除了 binary_sensor 属性变化，集成还会在预警 **新增** 或 **解除** 时 fire 专属 HA 事件，方便你按条播报：
+
+| 事件名 | 时机 | payload |
+|---|---|---|
+| `heweather_disaster_new` | 有新增预警 | `text`（跟随 disastermsg 配置）、`text_long`（description）、`text_short`（headline）、`alerts`（原始列表） |
+| `heweather_disaster_cleared` | 有预警被解除 | `text_short`（headline）、`alerts`（原始列表） |
+
+**注意**：新增事件的 `text` 跟随集成配置——`allmsg` 时取 description（长文本），`title` 时取 headline（短文本）。`text_long` / `text_short` 始终携带，供自动化按需选择。
+
+**API 故障保护**：天气预警 API 调用失败时，不会清空已有预警状态，也不会触发解除事件——避免误报。
+
+#### 自动化示例：新增预警时语音播报（长文本）
+
+```yaml
+automation:
+  - alias: 新增气象预警语音播报
+    trigger:
+      - platform: event
+        event_type: hefeng_weather_disaster_new
+    action:
+      - action: notify.send_message
+        target:
+          entity_id:
+            - notify.xiaomi_cn_795522484_l06a_play_text_a_5_1
+            - notify.xiaomi_cn_866479630_oh2p_play_text_a_7_3
+        data:
+          message: "气象预警。{{ trigger.event.data.text_long }}"
+```
+
+#### 自动化示例：预警解除时语音播报（短文本）
+
+```yaml
+automation:
+  - alias: 气象预警解除语音播报
+    trigger:
+      - platform: event
+        event_type: hefeng_weather_disaster_cleared
+    action:
+      - action: notify.send_message
+        target:
+          entity_id:
+            - notify.xiaomi_cn_795522484_l06a_play_text_a_5_1
+            - notify.xiaomi_cn_866479630_oh2p_play_text_a_7_3
+        data:
+          message: "预警解除。{{ trigger.event.data.text_short }}"
+```
+
+#### 自动化示例：只关心新增、用短文本
+
+```yaml
+    action:
+      - action: notify.send_message
+        data:
+          message: "新预警：{{ trigger.event.data.text_short }}"
+```
+
+#### 所有事件 payload 一览
+
+**新增 `heweather_disaster_new`**：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `text` | string | 跟随配置：`allmsg`→description，`title`→headline |
+| `text_long` | string | description（长文本，适合语音/完整播报） |
+| `text_short` | string | headline（短文本，适合快速通知） |
+| `alerts` | list | 新增的原始预警对象列表 |
+| `source` | string | `"heweather"` |
+
+**解除 `heweather_disaster_cleared`**：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `text_short` | string | headline（短文本） |
+| `alerts` | list | 解除的原始预警对象列表 |
+| `source` | string | `"heweather"` |
+
 ### 新增 sensor 摘要
 
 - 分钟降水：`分钟降水描述`、`分钟降水强度`
@@ -149,11 +227,15 @@ https://www.bilibili.com/read/cv18078640
 
 ```yaml
 automation:
-  - alias: 灾害预警通知
+  - alias: 灾害预警通知（属性触发，兼容旧版）
     trigger:
       - platform: state
         entity_id: binary_sensor.he_feng_tian_qi_heweather_disaster_warn_binary
-        to: "on"
+        attribute: states
+    condition:
+      - condition: state
+        entity_id: binary_sensor.he_feng_tian_qi_heweather_disaster_warn_binary
+        state: "on"
     action:
       - service: notify.mobile_app_xxx
         data:

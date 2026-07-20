@@ -46,7 +46,7 @@ def parse_disaster(alert_data, disaster_level, disaster_msg):
             if headline:
                 title_parts.append(headline)
     if not matched:
-        return {"active": False, "text": f"no disaster {disaster_level}"}
+        return {"active": False, "text": ""}
     text = "；".join(title_parts) if disaster_msg == "title" else "；".join(all_parts)
     return {"active": True, "text": text}
 
@@ -85,6 +85,46 @@ def rain_warn_active(weather_data):
 def round_coord(value, digits=2):
     return f"{float(value):.{digits}f}"
 
+# ---- alert_key mirror (same logic as coordinator) ----
+def alert_key(alert):
+    headline = (alert.get("headline") or "").strip()
+    severity = (alert.get("severity") or "").strip().lower()
+    return f"{severity}:{headline}"
+
+# ---- _fire_disaster_events mirror (no HA import) ----
+EVENT_DISASTER_NEW = "heweather_disaster_new"
+EVENT_DISASTER_CLEARED = "heweather_disaster_cleared"
+
+class _FakeBus:
+    def __init__(self):
+        self.events = []
+    def async_fire(self, event_type, data=None, **kw):
+        self.events.append((event_type, data or {}))
+
+class _FakeHass:
+    def __init__(self):
+        self.bus = _FakeBus()
+
+def _fire_disaster_events(hass, new_alerts, cleared_alerts, disaster_msg):
+    if new_alerts:
+        descs = [a.get("description") or "" for a in new_alerts]
+        headlines = [a.get("headline") or "" for a in new_alerts]
+        text_long = "；".join(d for d in descs if d.strip())
+        text_short = "；".join(h for h in headlines if h.strip())
+        text = text_short if disaster_msg == "title" else text_long
+        hass.bus.async_fire(
+            EVENT_DISASTER_NEW,
+            {"text": text, "text_long": text_long, "text_short": text_short,
+             "alerts": new_alerts, "source": "heweather"},
+        )
+    if cleared_alerts:
+        headlines = [a.get("headline") or "" for a in cleared_alerts]
+        text_short = "；".join(h for h in headlines if h.strip())
+        hass.bus.async_fire(
+            EVENT_DISASTER_CLEARED,
+            {"text_short": text_short, "alerts": cleared_alerts, "source": "heweather"},
+        )
+
 def test_all():
     assert condition_from_text("晴") == "sunny"
     assert condition_from_text("小雨") == "rainy"
@@ -94,6 +134,8 @@ def test_all():
     assert "fishing" in parsed2 and "makeup" in parsed2
     result = parse_disaster({"alerts":[{"severity":"minor","headline":"小风","description":"d1"},{"severity":"severe","headline":"暴雨","description":"d2"}]}, "3", "title")
     assert result["active"] is True and result["text"] == "暴雨" and "小风" not in result["text"]
+    no_match = parse_disaster({"alerts":[{"severity":"minor","headline":"小风","description":"d1"}]}, "3", "allmsg")
+    assert no_match["active"] is False and no_match["text"] == ""
     # allmsg: description only, multi joined by Chinese semicolon
     allmsg = parse_disaster({
         "alerts": [
@@ -143,11 +185,83 @@ def test_all():
     init = (PKG/"__init__.py").read_text(encoding="utf-8")
     assert "WeatherUpdateCoordinator" in init
     manifest = json.loads((PKG/"manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "2.6.1"
+    assert manifest["version"] == "2.7.0"
     # production parse_disaster: description-only allmsg, no legacy || join
     assert '".join(all_parts)' in coord or ".join(all_parts)" in coord
     assert "headline}:{description" not in coord
     assert 'allmsg += f"{headline}:{description}||"' not in coord
+    # coordinator must have disaster event/diff infrastructure
+    assert "_last_disaster_alerts" in coord
+    assert "alert_key" in coord
+    # event constants in const.py
+    const = (PKG/"heweather"/"const.py").read_text(encoding="utf-8")
+    assert "EVENT_DISASTER_NEW" in const
+    assert "EVENT_DISASTER_CLEARED" in const
+    # alert_key tests (mirror)
+    assert alert_key({"severity": "severe", "headline": "暴雨"}) == "severe:暴雨"
+    assert alert_key({"severity": "Major", "headline": "高温"}) == "major:高温"
+    assert alert_key({"severity": "", "headline": ""}) == ":"
+    assert alert_key({}) == ":"
+    # _fire_disaster_events: new event (allmsg → text_long)
+    h = _FakeHass()
+    _fire_disaster_events(
+        h,
+        new_alerts=[
+            {"severity": "severe", "headline": "暴雨", "description": "预计有大暴雨"},
+            {"severity": "major", "headline": "高温", "description": "预计气温37℃"},
+        ],
+        cleared_alerts=[],
+        disaster_msg="allmsg",
+    )
+    assert len(h.bus.events) == 1
+    etype, edata = h.bus.events[0]
+    assert etype == EVENT_DISASTER_NEW
+    assert edata["text"] == edata["text_long"]
+    assert "暴雨" not in edata["text_short"] or "暴雨" in edata["text_short"]
+    assert "预计有大暴雨" in edata["text"]
+    assert "预计气温37℃" in edata["text"]
+    # _fire_disaster_events: new event (title → text_short)
+    h2 = _FakeHass()
+    _fire_disaster_events(
+        h2,
+        new_alerts=[
+            {"severity": "severe", "headline": "暴雨", "description": "预计有大暴雨"},
+        ],
+        cleared_alerts=[],
+        disaster_msg="title",
+    )
+    assert h2.bus.events[0][1]["text"] == "暴雨"
+    # _fire_disaster_events: cleared event
+    h3 = _FakeHass()
+    _fire_disaster_events(
+        h3,
+        new_alerts=[],
+        cleared_alerts=[
+            {"severity": "severe", "headline": "暴雨解除", "description": "预警已解除"},
+        ],
+        disaster_msg="allmsg",
+    )
+    assert len(h3.bus.events) == 1
+    assert h3.bus.events[0][0] == EVENT_DISASTER_CLEARED
+    assert h3.bus.events[0][1]["text_short"] == "暴雨解除"
+    assert "description" not in h3.bus.events[0][1]  # cleared event has no description
+    # diff logic: no change → no event
+    h4 = _FakeHass()
+    old = [{"severity": "severe", "headline": "暴雨"}]
+    new = [{"severity": "severe", "headline": "暴雨"}]
+    _fire_disaster_events(h4, new_alerts=[], cleared_alerts=[], disaster_msg="allmsg")
+    assert len(h4.bus.events) == 0  # no change → no event
+    # diff logic: new + cleared simultaneously
+    h5 = _FakeHass()
+    _fire_disaster_events(
+        h5,
+        new_alerts=[{"severity": "severe", "headline": "新增预警"}],
+        cleared_alerts=[{"severity": "major", "headline": "旧预警解除"}],
+        disaster_msg="allmsg",
+    )
+    assert len(h5.bus.events) == 2
+    assert h5.bus.events[0][0] == EVENT_DISASTER_NEW
+    assert h5.bus.events[1][0] == EVENT_DISASTER_CLEARED
     const = (PKG/"heweather"/"const.py").read_text(encoding="utf-8")
     assert '"4": "fishing"' in const and '"13": "makeup"' in const
     cf = (PKG/"config_flow.py").read_text(encoding="utf-8")

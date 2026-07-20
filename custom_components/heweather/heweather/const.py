@@ -170,6 +170,10 @@ ATTR_SUGGESTION = "建议"
 ATTR_STATES = "states"
 ATTRIBUTION = "来自和风天气的天气数据"
 
+# 灾害预警事件（coordinator 在 diff 变化时 fire）
+EVENT_DISASTER_NEW = "heweather_disaster_new"
+EVENT_DISASTER_CLEARED = "heweather_disaster_cleared"
+
 CERT_NAME_PREFIX = "heweather_ed25519_"
 
 # runtime data keys

@@ -15,6 +15,8 @@ from .api import QWeatherApiClient, QWeatherApiError
 from .heweather.const import (
     DISASTER_LEVEL,
     DOMAIN,
+    EVENT_DISASTER_CLEARED,
+    EVENT_DISASTER_NEW,
     INDEX_TYPE_MAP,
     INDICES_UPDATE_INTERVAL,
     MINUTELY_UPDATE_INTERVAL,
@@ -142,7 +144,8 @@ def parse_disaster(
                 title_parts.append(headline)
 
     if not matched:
-        text = f"近日无{disaster_level}级及以上灾害"
+        # 无匹配预警：空文案，避免「近日无…」被语音/通知误播
+        text = ""
         active = False
     elif disaster_msg == "title":
         text = "；".join(title_parts)
@@ -156,6 +159,64 @@ def parse_disaster(
         "text": text,
         "alerts": matched,
     }
+
+
+def alert_key(alert: dict[str, Any]) -> str:
+    """预警唯一标识（用于新旧对比）：severity:headline。"""
+    headline = (alert.get("headline") or "").strip()
+    severity = (alert.get("severity") or "").strip().lower()
+    return f"{severity}:{headline}"
+
+
+def _fire_disaster_events(
+    hass: HomeAssistant,
+    new_alerts: list[dict[str, Any]],
+    cleared_alerts: list[dict[str, Any]],
+    disaster_msg: str,
+) -> None:
+    """为新增/解除预警 fire 独立事件。
+
+    新增事件 payload:
+      - text:          跟随用户 disastermsg 配置（allmsg→description，title→headline）
+      - text_long:     永远是 description（长文本，适合播报）
+      - text_short:    永远是 headline（短文本，适合播报）
+      - alerts:        新增的原始预警列表
+      - source:        "heweather"
+
+    解除事件 payload:
+      - text_short:    永远是 headline（短文本，适合播报）
+      - alerts:        解除的原始预警列表
+      - source:        "heweather"
+    """
+    if new_alerts:
+        descs = [a.get("description") or "" for a in new_alerts]
+        headlines = [a.get("headline") or "" for a in new_alerts]
+        text_long = "；".join(d for d in descs if d.strip())
+        text_short = "；".join(h for h in headlines if h.strip())
+        # text 跟随用户配置
+        text = text_short if disaster_msg == "title" else text_long
+        hass.bus.async_fire(
+            EVENT_DISASTER_NEW,
+            {
+                "text": text,
+                "text_long": text_long,
+                "text_short": text_short,
+                "alerts": new_alerts,
+                "source": DOMAIN,
+            },
+        )
+
+    if cleared_alerts:
+        headlines = [a.get("headline") or "" for a in cleared_alerts]
+        text_short = "；".join(h for h in headlines if h.strip())
+        hass.bus.async_fire(
+            EVENT_DISASTER_CLEARED,
+            {
+                "text_short": text_short,
+                "alerts": cleared_alerts,
+                "source": DOMAIN,
+            },
+        )
 
 
 def parse_indices(indices_data: dict[str, Any] | None) -> dict[str, list[str]]:
@@ -277,6 +338,7 @@ class WeatherUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.longitude = entry.data[CONF_LONGITUDE]
         self.latitude = entry.data[CONF_LATITUDE]
         self.location = f"{self.longitude},{self.latitude}"
+        self._last_disaster_alerts: list[dict[str, Any]] = []
 
     async def _async_update_data(self) -> dict[str, Any]:
         lon, lat = self.longitude, self.latitude
@@ -311,11 +373,39 @@ class WeatherUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hourly = parse_hourly_forecast(hourly_raw)
         air = parse_cn_mee_air(air_raw)
         air_daily = parse_air_daily(air_daily_raw)
-        disaster = parse_disaster(
-            alert_raw,
-            str(self.entry.data.get(CONF_DISASTERLEVEL, "3")),
-            str(self.entry.data.get(CONF_DISASTERMSG, "allmsg")),
-        )
+
+        # --- 灾害预警：API 失败保留旧状态，成功时 diff + fire 事件 ---
+        disaster_level = str(self.entry.data.get(CONF_DISASTERLEVEL, "3"))
+        disaster_msg = str(self.entry.data.get(CONF_DISASTERMSG, "allmsg"))
+
+        if alert_raw is not None:
+            # API 成功：解析 + diff + fire 事件
+            disaster = parse_disaster(alert_raw, disaster_level, disaster_msg)
+            new_matched = disaster.get("alerts") or []
+
+            # 对比新旧
+            prev_keys = {alert_key(a) for a in self._last_disaster_alerts}
+            curr_keys = {alert_key(a) for a in new_matched}
+
+            if prev_keys or curr_keys:
+                _fire_disaster_events(
+                    self.hass,
+                    new_alerts=[a for a in new_matched if alert_key(a) not in prev_keys],
+                    cleared_alerts=[a for a in self._last_disaster_alerts if alert_key(a) not in curr_keys],
+                    disaster_msg=disaster_msg,
+                )
+
+            self._last_disaster_alerts = new_matched
+        else:
+            # API 失败：保留上一轮的预警数据（避免误清）
+            _LOGGER.warning(
+                "weather_alert API failed, preserving previous disaster state"
+            )
+            disaster = {
+                "active": bool(self._last_disaster_alerts),
+                "text": "",
+                "alerts": list(self._last_disaster_alerts),
+            }
 
         # 日出日落：优先天文 API，否则回退日预报首日
         sunrise = (sun_raw or {}).get("sunrise")

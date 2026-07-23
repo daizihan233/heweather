@@ -76,6 +76,9 @@
       "heweather_disaster_warn": {
         "name": "灾害预警"
       },
+      "heweather_disaster_text": {
+        "name": "灾害预警详情"
+      },
       "suggestion_air": {
         "name": "空气污染扩散条件指数"
       },

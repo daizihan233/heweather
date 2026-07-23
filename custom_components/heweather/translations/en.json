@@ -76,6 +76,9 @@
       "heweather_disaster_warn": {
         "name": "disaster_warn"
       },
+      "heweather_disaster_text": {
+        "name": "disaster text"
+      },
       "suggestion_air": {
         "name": "Air Pollution Dispersion Index"
       },

@@ -336,6 +336,12 @@ SENSOR_DESCRIPTIONS: tuple[HeWeatherSensorDescription, ...] = (
             ATTR_STATES: (w.get("disaster") or {}).get("text") or ""
         },
     ),
+    HeWeatherSensorDescription(
+        key="disaster_text",
+        translation_key="heweather_disaster_text",
+        icon="mdi:alert-circle",
+        value_fn=lambda w, i, m: (w.get("disaster") or {}).get("text") or None,
+    ),
     *[
         HeWeatherSensorDescription(
             key=key,

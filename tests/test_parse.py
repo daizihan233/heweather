@@ -87,9 +87,7 @@ def round_coord(value, digits=2):
 
 # ---- alert_key mirror (same logic as coordinator) ----
 def alert_key(alert):
-    headline = (alert.get("headline") or "").strip()
-    severity = (alert.get("severity") or "").strip().lower()
-    return f"{severity}:{headline}"
+    return str(alert.get("id") or "")
 
 # ---- _fire_disaster_events mirror (no HA import) ----
 EVENT_DISASTER_NEW = "heweather_disaster_new"
@@ -177,7 +175,7 @@ def test_all():
     coord = (PKG/"coordinator.py").read_text(encoding="utf-8")
     assert "if not matched:" in coord and "WeatherUpdateCoordinator" in coord
     sensor = (PKG/"sensor.py").read_text(encoding="utf-8")
-    assert "heweather_temperature" in sensor and '("sunglass"' in sensor and "suggestion_{key}" in sensor and "async_setup_platform" not in sensor
+    assert "heweather_temperature" in sensor and '("sunglass"' in sensor and "suggestion_{key}" in sensor and "async_setup_platform" not in sensor and "disaster_text" in sensor
     binary = (PKG/"binary_sensor.py").read_text(encoding="utf-8")
     assert "rain_warn" in binary and "next_precip" in binary
     weather = (PKG/"weather.py").read_text(encoding="utf-8")
@@ -198,10 +196,10 @@ def test_all():
     assert "EVENT_DISASTER_NEW" in const
     assert "EVENT_DISASTER_CLEARED" in const
     # alert_key tests (mirror)
-    assert alert_key({"severity": "severe", "headline": "暴雨"}) == "severe:暴雨"
-    assert alert_key({"severity": "Major", "headline": "高温"}) == "major:高温"
-    assert alert_key({"severity": "", "headline": ""}) == ":"
-    assert alert_key({}) == ":"
+    assert alert_key({"id": "202607231458277683626405"}) == "202607231458277683626405"
+    assert alert_key({"id": "12345"}) == "12345"
+    assert alert_key({"severity": "severe", "headline": "暴雨"}) == ""
+    assert alert_key({}) == ""
     # _fire_disaster_events: new event (allmsg → text_long)
     h = _FakeHass()
     _fire_disaster_events(

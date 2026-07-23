@@ -162,10 +162,8 @@ def parse_disaster(
 
 
 def alert_key(alert: dict[str, Any]) -> str:
-    """预警唯一标识（用于新旧对比）：severity:headline。"""
-    headline = (alert.get("headline") or "").strip()
-    severity = (alert.get("severity") or "").strip().lower()
-    return f"{severity}:{headline}"
+    """预警唯一标识（用于新旧对比）：API 返回的 id。"""
+    return str(alert.get("id") or "")
 
 
 def _fire_disaster_events(
@@ -339,6 +337,7 @@ class WeatherUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.latitude = entry.data[CONF_LATITUDE]
         self.location = f"{self.longitude},{self.latitude}"
         self._last_disaster_alerts: list[dict[str, Any]] = []
+        self._last_disaster_text: str = ""
 
     async def _async_update_data(self) -> dict[str, Any]:
         lon, lat = self.longitude, self.latitude
@@ -396,6 +395,7 @@ class WeatherUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
             self._last_disaster_alerts = new_matched
+            self._last_disaster_text = disaster.get("text", "")
         else:
             # API 失败：保留上一轮的预警数据（避免误清）
             _LOGGER.warning(
@@ -403,7 +403,7 @@ class WeatherUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             disaster = {
                 "active": bool(self._last_disaster_alerts),
-                "text": "",
+                "text": self._last_disaster_text,
                 "alerts": list(self._last_disaster_alerts),
             }
 
